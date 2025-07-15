@@ -21,7 +21,9 @@ use {
         GetSlotRequest, GetSlotResponse, GetVersionRequest, GetVersionResponse,
         IsBlockhashValidRequest, IsBlockhashValidResponse, PingRequest, PongResponse,
         SubscribeReplayInfoRequest, SubscribeReplayInfoResponse, SubscribeRequest, SubscribeUpdate,
+        SubscribeUpdateAccount,
     },
+    solana_pubkey::Pubkey,
 };
 
 #[derive(Debug, Clone)]
@@ -134,6 +136,63 @@ impl<F: Interceptor> GeyserGrpcClient<F> {
         self.subscribe_with_request(Some(request))
             .await
             .map(|(_sink, stream)| stream)
+    }
+
+    /// Subscribe to a set of accounts and aggregate their updates into a single response
+    /// once all accounts from the provided list have been updated.
+    pub async fn subscribe_accounts_accumulated(
+        &mut self,
+        accounts: Vec<Pubkey>,
+    ) -> GeyserGrpcClientResult<impl Stream<Item = Result<Vec<SubscribeUpdateAccount>, Status>>>
+    {
+        use {
+            async_stream::try_stream,
+            futures::StreamExt,
+            std::collections::{HashMap, HashSet},
+            yellowstone_grpc_proto::prelude::{
+                subscribe_update::UpdateOneof, SubscribeRequestFilterAccounts,
+            },
+        };
+
+        let mut request = SubscribeRequest::default();
+        request.accounts.insert(
+            "acc".to_string(),
+            SubscribeRequestFilterAccounts {
+                account: accounts.iter().map(|a| a.to_string()).collect(),
+                ..Default::default()
+            },
+        );
+
+        let mut stream = self.subscribe_once(request).await?;
+
+        let pubkeys: Vec<Vec<u8>> = accounts.iter().map(|pk| pk.to_bytes().to_vec()).collect();
+        let key_set: HashSet<Vec<u8>> = pubkeys.iter().cloned().collect();
+        let total = key_set.len();
+
+        let s = try_stream! {
+            let mut pending: HashMap<Vec<u8>, SubscribeUpdateAccount> = HashMap::new();
+            while let Some(update) = stream.next().await {
+                let update = update?;
+                if let Some(UpdateOneof::Account(account_msg)) = update.update_oneof {
+                    if let Some(info) = account_msg.account.as_ref() {
+                        if key_set.contains(&info.pubkey) {
+                            pending.insert(info.pubkey.clone(), account_msg);
+                            if pending.len() == total {
+                                let mut out = Vec::new();
+                                for key in &pubkeys {
+                                    if let Some(acc) = pending.remove(key) {
+                                        out.push(acc);
+                                    }
+                                }
+                                yield out;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(s)
     }
 
     // RPC calls

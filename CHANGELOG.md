@@ -13,6 +13,7 @@ The minor version will be incremented upon a breaking change and the patch versi
 ### Fixes
 
 ### Features
+- yellowstone-grpc-client: add `subscribe_accounts_accumulated` for aggregated account updates
 
 ### Breaking
 
