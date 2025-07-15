@@ -23,6 +23,7 @@ use {
         SubscribeReplayInfoRequest, SubscribeReplayInfoResponse, SubscribeRequest, SubscribeUpdate,
         SubscribeUpdateAccount,
     },
+    solana_pubkey::Pubkey,
 };
 
 #[derive(Debug, Clone)]
@@ -141,17 +142,15 @@ impl<F: Interceptor> GeyserGrpcClient<F> {
     /// once all accounts from the provided list have been updated.
     pub async fn subscribe_accounts_accumulated(
         &mut self,
-        accounts: Vec<String>,
-    ) -> GeyserGrpcClientResult<impl Stream<Item = Result<Vec<SubscribeUpdateAccount>, Status>>> {
+        accounts: Vec<Pubkey>,
+    ) -> GeyserGrpcClientResult<impl Stream<Item = Result<Vec<SubscribeUpdateAccount>, Status>>>
+    {
         use {
             async_stream::try_stream,
             futures::StreamExt,
             std::collections::{HashMap, HashSet},
-            std::str::FromStr,
-            solana_pubkey::Pubkey,
             yellowstone_grpc_proto::prelude::{
-                subscribe_update::UpdateOneof,
-                SubscribeRequestFilterAccounts,
+                subscribe_update::UpdateOneof, SubscribeRequestFilterAccounts,
             },
         };
 
@@ -159,18 +158,14 @@ impl<F: Interceptor> GeyserGrpcClient<F> {
         request.accounts.insert(
             "acc".to_string(),
             SubscribeRequestFilterAccounts {
-                account: accounts.clone(),
+                account: accounts.iter().map(|a| a.to_string()).collect(),
                 ..Default::default()
             },
         );
 
         let mut stream = self.subscribe_once(request).await?;
 
-        let pubkeys: Vec<Vec<u8>> = accounts
-            .iter()
-            .filter_map(|a| Pubkey::from_str(a).ok())
-            .map(|pk| pk.to_bytes().to_vec())
-            .collect();
+        let pubkeys: Vec<Vec<u8>> = accounts.iter().map(|pk| pk.to_bytes().to_vec()).collect();
         let key_set: HashSet<Vec<u8>> = pubkeys.iter().cloned().collect();
         let total = key_set.len();
 
