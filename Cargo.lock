@@ -5515,8 +5515,10 @@ checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
 name = "yellowstone-grpc-client"
 version = "8.0.0"
 dependencies = [
+ "async-stream",
  "bytes",
  "futures",
+ "solana-pubkey",
  "thiserror 1.0.69",
  "tokio",
  "tonic",
